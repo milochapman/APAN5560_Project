@@ -1,0 +1,34 @@
+# 确保里面有这几行（至少）
+# .venv/
+# .env
+# outputs/
+# *.safetensors
+# *.bin
+# .DS_Store
+
+git add .
+git commit -m "Initial commit (without large model file)"
+
+git remote add origin https://github.com/milochapman/APAN5560_Project.git
+git branch -M main
+git push -u origin main# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# API keys
+.env
+
+# Large model weights
+*.safetensors
+*.bin
+
+# Outputs
+outputs/
+poster_*.png
+
+# macOS
+.DS_Store
+
