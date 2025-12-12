@@ -47,9 +47,20 @@ APAN5560-project/
 └── response_*.json          # Swagger response JSON files (user-generated)
 ```
 
-## 4. Recommended Execution Path (For Grading)
+## 4. Model Weights Availability
 
-Docker is the recommended execution method for instructors and TAs, as it provides a consistent and reproducible environment.
+The pretrained model weights file `model.safetensors` is not included in the Git repository due to file size constraints.
+
+For completeness and reproducibility, the file is provided separately via Google Drive:
+
+```
+https://drive.google.com/file/d/1NHs1HgpbgMFi5ajGVWlTbRQvtHd96Zp8/view?usp=sharing
+```
+
+This file is only required if the genre classification component is executed.  
+The core poster generation pipeline and API endpoints can be executed and graded without manually downloading this file.
+
+No private credentials are required to access the model file.
 
 ### Build the Docker Image
 
