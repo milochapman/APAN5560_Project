@@ -1,102 +1,120 @@
 import os
+import json
 import base64
-import requests
-
-# FastAPI 服务地址
-API_URL = "http://127.0.0.1:8000"
+import argparse
+from datetime import datetime
 
 
-def save_data_url(data_url: str, out_path: str) -> None:
+def save_data_url_png(data_url: str, out_path: str) -> None:
     """
-    把 data:image/png;base64,... 这种格式的字符串解码并保存为 PNG 文件
+    Decode a data URL like: data:image/png;base64,xxxx... and save it as a PNG.
     """
+    if not isinstance(data_url, str) or "," not in data_url:
+        raise ValueError("image_url is not a valid data URL string")
+
     header, b64 = data_url.split(",", 1)
+
+    # Basic validation
+    if "base64" not in header.lower():
+        raise ValueError(f"Unsupported data URL header: {header}")
+
     img_bytes = base64.b64decode(b64)
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(img_bytes)
 
-    print(f" Saved: {out_path}")
+    print(f"Saved: {out_path}")
 
 
-def generate_and_save(endpoint: str, payload: dict, prefix: str = "poster") -> None:
+def sanitize_name(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return "variant"
+    # Keep it filesystem-friendly
+    bad = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    for ch in bad:
+        s = s.replace(ch, "_")
+    s = s.replace(" ", "_")
+    return s[:80]
+
+
+def save_from_response_json(data: dict, out_dir: str, prefix: str) -> None:
     """
-    通用保存函数：
-    - endpoint: "generate_poster" 或 "generate_campaign"
-    - payload: 传给 API 的 JSON
-    - prefix: 输出目录 / 文件名前缀
+    Supports two response formats:
+    1) Campaign: {"variants": [{"id":0,"variant":"theatrical poster","image_url":"data:image/png;base64,..."} , ...]}
+    2) Single:  {"image_url":"data:image/png;base64,..."}
     """
-    url = f"{API_URL}/{endpoint.lstrip('/')}"
-    print(f" Calling API: {url}")
-    print(f" Payload: {payload}")
+    os.makedirs(out_dir, exist_ok=True)
 
-    resp = requests.post(url, json=payload)
-    print(f" Status code: {resp.status_code}")
-    resp.raise_for_status()
-    data = resp.json()
-
-    # Case 1: generate_campaign → 有多个 variants
-    if "variants" in data:
-        print("Detected: campaign (multiple images) response")
+    # Campaign response
+    if isinstance(data, dict) and "variants" in data and isinstance(data["variants"], list):
         variants = data["variants"]
-        out_dir = os.path.join("outputs", prefix)
-        os.makedirs(out_dir, exist_ok=True)
-
         if not variants:
-            print(" variants is empty, nothing to save.")
-            return
+            raise ValueError("Response contains 'variants' but it's empty.")
 
-        for v in variants:
-            data_url = v.get("image_url")
-            variant_name = (v.get("variant") or f"variant_{v.get('id','x')}").replace(" ", "_")
-            vid = v.get("id", 0)
-
-            if not data_url:
-                print(f" Variant {vid} has no image_url, skipping.")
+        for i, v in enumerate(variants):
+            if not isinstance(v, dict):
                 continue
 
-            filename = f"{vid}_{variant_name}.png"
+            data_url = v.get("image_url")
+            if not data_url:
+                print(f"Skip variant index {i}: no image_url")
+                continue
+
+            vid = v.get("id", i)
+            vname = sanitize_name(v.get("variant") or f"variant_{vid}")
+            filename = f"{prefix}_{vid}_{vname}.png"
             out_path = os.path.join(out_dir, filename)
-            save_data_url(data_url, out_path)
+            save_data_url_png(data_url, out_path)
 
-    # Case 2: generate_poster → 单张图片
-    elif "image_url" in data:
-        print(" Detected: single poster response")
-        data_url = data["image_url"]
-        out_dir = "outputs"
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(out_dir, f"{prefix}.png")
-        save_data_url(data_url, out_path)
+        return
 
-    else:
-        print("Unknown response format, keys:", list(data.keys()))
-        raise ValueError("Unknown response format")
+    # Single poster response
+    if isinstance(data, dict) and "image_url" in data and isinstance(data["image_url"], str):
+        filename = f"{prefix}.png"
+        out_path = os.path.join(out_dir, filename)
+        save_data_url_png(data["image_url"], out_path)
+        return
 
+    raise ValueError(f"Unknown response format. Top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Save images from Swagger response JSON (no API calls)."
+    )
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="Path to the JSON file that contains the Swagger response (copy/paste response into a .json file)."
+    )
+    parser.add_argument(
+        "--outdir",
+        default="outputs",
+        help="Output directory to save images (default: outputs)."
+    )
+    parser.add_argument(
+        "--prefix",
+        default=None,
+        help="Filename prefix (default: timestamp)."
+    )
+    args = parser.parse_args()
+
+    prefix = args.prefix or datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = args.outdir
+
+    # Read JSON
+    with open(args.input, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # If user accidentally saved {"response": {...}} or similar wrapper, allow simple unwrap
+    if isinstance(data, dict) and "response" in data and isinstance(data["response"], dict):
+        data = data["response"]
+
+    save_from_response_json(data, out_dir=out_dir, prefix=prefix)
     print("Done.")
 
 
 if __name__ == "__main__":
-    # ① Campaign Posters
-    campaign_payload = {
-        "summary": "A legendary Jedi rises to confront a new Sith empire threatening the galaxy.",
-        "style_hint": "Star Wars style, IMAX, SDXL, cinematic lighting, blue and purple neon, high detail"
-    }
-
-    generate_and_save(
-        endpoint="generate_campaign",
-        payload=campaign_payload,
-        prefix="starwars_campaign"
-    )
-
-    # ② Single Poster
-    single_poster_payload = {
-        "summary": "A lone hero walks through a neon city at night.",
-        "style_hint": "cyberpunk, SDXL, neon lights, dramatic, IMAX poster"
-    }
-
-    generate_and_save(
-        endpoint="generate_poster",
-        payload=single_poster_payload,
-        prefix="cyberpunk_poster"
-    )
+    main()
